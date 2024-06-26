@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-svc
+  labels:
+    app: kafka-app
+spec:
+  clusterIP: None
+  ports:
+    - name: '9092' #producers
+      port: {{ .Values.service.listenerPort }}
+      protocol: TCP
+      targetPort: {{ .Values.service.listenerPort }}
+    - name: '9093' #management
+      port: {{ .Values.service.kafkaClusterPort }}
+      protocol: TCP
+      targetPort: {{ .Values.service.kafkaClusterPort }}
+  selector:
+    app: kafka-app
+{{- if .Values.kafkaUI.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kafka.fullname" . }}-kafka-ui
+spec:
+  type: ClusterIP
+  ports:
+  - protocol: TCP
+    port: {{ .Values.kafkaUI.port }}
+    targetPort: 8080
+  selector:
+    app: {{ include "kafka.fullname" . }}-kafka-ui
+{{- end }}
+{{- if .Values.debezium.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: connect
+spec:
+  type: ClusterIP
+  ports:
+  - protocol: TCP
+    port: {{ .Values.debezium.port }}
+    targetPort: 8083
+  selector:
+    app: {{ include "kafka.fullname" . }}-debezium
+{{- end }}

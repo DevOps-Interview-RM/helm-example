@@ -1,0 +1,164 @@
+{{- if .Values.kafka.vpa.enabled }}
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: kafka-vpa
+spec:
+  targetRef:
+    apiVersion: "apps/v1"
+    kind: StatefulSet
+    name: kafka
+  updatePolicy:
+    updateMode: "{{ .Values.kafka.vpa.updateMode }}"
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  labels:
+    app: kafka-app
+spec:
+  serviceName: kafka-svc
+  replicas: {{ .Values.replicaCount }}  # Ensure this is replaced by actual number or properly templated if using Helm
+  selector:
+    matchLabels:
+      app: kafka-app
+  template:
+    metadata:
+      labels:
+        app: kafka-app
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: kafka-app
+      containers:
+        - name: kafka-container
+          image: apache/kafka
+          ports:
+            - containerPort: {{ .Values.service.listenerPort }}
+            - containerPort: {{ .Values.service.kafkaClusterPort }}
+          env:
+            - name: REPLICAS
+              value: "{{ .Values.replicaCount }}"
+            - name: SERVICE
+              value: kafka-svc
+            - name: NAMESPACE
+              value: "{{ .Values.namespace }}"
+            - name: SHARE_DIR
+              value: /mnt/data
+            - name: CLUSTER_ID
+              value: "{{ .Values.environment.clusterID }}"
+            - name: DEFAULT_REPLICATION_FACTOR
+              value: "{{ .Values.environment.defaultReplicationFactor }}"
+            - name: DEFAULT_MIN_INSYNC_REPLICAS
+              value: "{{ .Values.environment.defaultMinimumInSyncReplica }}"
+          volumeMounts:
+            - name: data
+              mountPath: /mnt/data
+            - name: setup-script
+              mountPath: /var/tmp/kafka
+          command: ["/bin/bash", "var/tmp/kafka/setup-kafka.sh"]
+      volumes:
+        - name: setup-script
+          configMap:
+            name: kafka-setup-script
+      securityContext:    
+        runAsUser: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ebs-sc #ref to ebs-storage-class.yaml
+        resources:
+          requests:
+            storage: "10Gi"
+{{- if .Values.debezium.enabled }}
+---
+# Debezium Connect deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kafka.fullname" . }}-debezium
+  labels:
+    {{- include "kafka.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "kafka.fullname" . }}-debezium
+  template:
+    metadata:
+      labels:
+        app: {{ include "kafka.fullname" . }}-debezium
+    spec:
+      serviceAccountName: {{ .Values.debezium.serviceAccount }}
+      containers:
+      - name: debezium
+        image: debezium/connect:latest
+        ports:
+        - containerPort: {{ .Values.debezium.port }}
+        env:
+        - name: BOOTSTRAP_SERVERS
+          value: "{{ .Values.kafka.bootstrapServers }}"
+        - name: NAMESPACE
+          value: "{{ .Values.namespace }}"
+        - name: GROUP_ID
+          value: "1"
+        - name: CONFIG_STORAGE_TOPIC
+          value: "my_connect_configs"
+        - name: OFFSET_STORAGE_TOPIC
+          value: "my_connect_offsets"
+        - name: STATUS_STORAGE_TOPIC
+          value: "my_source_connect_statuses"
+        - name: CONNECT_CONFIG_PROVIDERS
+          value: "file"
+        - name: CONNECT_CONFIG_PROVIDERS_FILE_CLASS
+          value: "org.apache.kafka.common.config.provider.FileConfigProvider"
+        volumeMounts:
+        - name: secrets-store-inline
+          mountPath: "/mnt/secrets-store"
+          readOnly: true
+      volumes:
+      - name: secrets-store-inline
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "aws-secrets"
+{{- end }}
+{{- if .Values.kafkaUI.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kafka.fullname" . }}-kafka-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "kafka.fullname" . }}-kafka-ui
+  template:
+    metadata:
+      labels:
+        app: {{ include "kafka.fullname" . }}-kafka-ui
+    spec:
+      containers:
+      - name: kafka-ui
+        image: {{ .Values.kafkaUI.image }}
+        ports:
+        - containerPort: 8080
+        env:
+        - name: KAFKA_CLUSTERS_0_NAME
+          value: "local"
+        - name: NAMESPACE
+          value: "{{ .Values.namespace }}"
+        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+          value: {{ .Values.kafka.bootstrapServers }}
+{{- end }}

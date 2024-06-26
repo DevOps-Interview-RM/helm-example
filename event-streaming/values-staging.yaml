@@ -1,0 +1,60 @@
+# Default values for kafka.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 3
+namespace: kafka
+env: staging
+
+environment:
+  clusterID: od-sxa3242342rwe5
+  defaultReplicationFactor: 3
+  defaultMinimumInSyncReplica: 2
+  
+service:
+  type: ClusterIP
+  listenerPort: 9092
+  kafkaClusterPort: 9093
+
+storage: 10Gi
+
+# kafka:
+#   bootstrapServers: "kafka-0.kafka-svc.kafka.svc.cluster.local:9092,kafka-1.kafka-svc.kafka.svc.cluster.local:9092,kafka-2.kafka-svc.kafka.svc.cluster.local:9092"
+
+kafka:
+  bootstrapServers: "kafka-svc.kafka.svc.cluster.local:9092"
+  ingress:
+    enabled: false
+    hostname: "kafka.staging.rmcdigital.net"
+  vpa:
+    enabled: true
+    minCpu: 0.03
+    maxCpu: 2
+    minMemory: 96Mi
+    maxMemory: 512Mi
+    updateMode: "Off"
+      
+kafkaUI:
+  enabled: true
+  image: provectuslabs/kafka-ui:latest
+  port: 8080
+  hostname: "kafka-ui.staging.rmcdigital.net"
+
+# postgresql:
+#   image: postgres:latest
+#   storage:
+#     size: "10Gi"
+#   user: "user"
+#   password: "12345678"
+#   database: "debezium"
+
+debezium:
+  enabled: true
+  image: debezium/connect:latest
+  port: 8083
+  groupId: 1
+  configStorageTopic: "my_connect_configs"
+  offsetStorageTopic: "my_connect_offsets"
+  statusStorageTopic: "my_source_connect_statuses"
+  serviceAccount: svc-account-staging
+  roleArn: arn:aws:iam::7234234234:role/eks-service_staging
